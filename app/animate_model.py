@@ -32,7 +32,13 @@ class WanAnimateModel(UpstreamAnimateModel):
         """Project fixed conditioning once and release its large encoders."""
         text = self._text(context)
         image = self.img_emb(clip)
-        motion = self.motion_encoder.get_motion(faces)
+        motions = []
+        for start in range(0, len(faces), 4):
+            encoded = self.motion_encoder.get_motion(faces[start:start + 4])
+            mx.eval(encoded)
+            motions.append(encoded)
+            mx.clear_cache()
+        motion = mx.concatenate(motions, axis=0)
         face_tokens = self.face_encoder(motion[None])
         mx.eval(text, image, motion, face_tokens)
         self._prepared_text = text

@@ -1,9 +1,10 @@
-"""Staged, single-window Animate smoke render for five driving frames."""
+"""Staged, single-window Animate render with bounded memory."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import hashlib
 import math
 import subprocess
 import sys
@@ -84,12 +85,12 @@ def _prepare(args) -> None:
         source = args.job / "source_segment.mp4"
         subprocess.run(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(args.start),
-             "-i", str(args.video), "-frames:v", "5", "-an", "-c:v", "libx264", "-crf", "18",
+             "-i", str(args.video), "-frames:v", str(args.frames), "-an", "-c:v", "libx264", "-crf", "18",
              "-pix_fmt", "yuv420p", str(source)], check=True,
         )
-    data = preprocess(str(source), str(reference), resolution_area=args.area, max_frames=5)
-    if len(data["pose_frames"]) != 5:
-        raise RuntimeError("The smoke render needs at least five driving frames")
+    data = preprocess(str(source), str(reference), resolution_area=args.area, max_frames=args.frames)
+    if len(data["pose_frames"]) != args.frames:
+        raise RuntimeError(f"The render needs at least {args.frames} driving frames after the start time")
     np.savez_compressed(args.job / "prepared.npz", pose=data["pose_frames"], face=data["face_frames"],
                         reference=data["ref_image"], fps=np.array(data["fps"]))
     print(json.dumps({"stage": "prepare", "shape": list(data["ref_image"].shape), "fps": data["fps"],
@@ -146,13 +147,14 @@ def _vae_encode(args) -> None:
         pose = data["pose"]
     encoder = load_vae_encoder(CONVERTED, AnimateConfig.animate_14b())
     h, w = reference.shape[:2]
+    count = len(pose)
     ref_lat = encoder.encode(_to_bcthw(reference[None]))[0]
     pose_lat = encoder.encode(_to_bcthw(pose))[0]
-    temporal_lat = encoder.encode(mx.zeros((1, 3, 5, h, w)))[0]
+    temporal_lat = encoder.encode(mx.zeros((1, 3, count, h, w)))[0]
     mx.eval(ref_lat, pose_lat, temporal_lat)
     lat_h, lat_w = ref_lat.shape[-2:]
     ref = mx.concatenate([get_i2v_mask(1, lat_h, lat_w, 1), ref_lat], axis=0)
-    temporal = mx.concatenate([get_i2v_mask(2, lat_h, lat_w, 0), temporal_lat], axis=0)
+    temporal = mx.concatenate([get_i2v_mask(count // 4 + 1, lat_h, lat_w, 0), temporal_lat], axis=0)
     conditioning = mx.concatenate([ref, temporal], axis=1)
     _save(args.job, "vae_conditioning", {"y": conditioning, "pose": pose_lat})
     print(json.dumps({"stage": "vae_encode", "y": list(conditioning.shape),
@@ -179,6 +181,7 @@ def _denoise(args) -> None:
     model.prepare_conditioning(features, context, face_pixels)
     mx.set_cache_limit(128 * 1024**2)
     print(json.dumps({"stage": "denoise_prepare", "conditioning_cached": True,
+                      "resident_budget_gib": round(model._resident_limit / 1024**3, 3),
                       "mlx_active_gib": round(mx.get_active_memory() / 1024**3, 3),
                       "mlx_peak_gib": round(mx.get_peak_memory() / 1024**3, 3)}), flush=True)
     mx.random.seed(args.seed)
@@ -214,7 +217,7 @@ def _decode(args) -> None:
     decoder = load_vae_decoder(CONVERTED, AnimateConfig.animate_14b())
     decoded = decoder.decode(latents[None][:, :, 1:])[0]
     mx.eval(decoded)
-    frames = np.transpose(np.asarray(decoded[:, :5]), (1, 2, 3, 0))
+    frames = np.transpose(np.asarray(decoded[:, :args.frames]), (1, 2, 3, 0))
     frames = ((np.clip(frames, -1, 1) + 1) * 127.5).astype(np.uint8)
     with np.load(args.job / "prepared.npz") as data:
         fps = float(data["fps"])
@@ -241,15 +244,46 @@ STAGES = {"prepare": _prepare, "text": _text, "image": _image, "vae_encode": _va
           "denoise": _denoise, "decode": _decode}
 
 
+def input_fingerprint(path: Path) -> dict:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(4 * 1024**2), b""):
+            digest.update(block)
+    return {"path": str(path.resolve()), "bytes": path.stat().st_size, "sha256": digest.hexdigest()}
+
+
+def run_stage(command: list[str], job: Path) -> list[dict]:
+    """Keep stage logs and metrics even if the child process fails."""
+    records = []
+    with (job / "stages.log").open("a") as log:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        assert process.stdout is not None
+        for line in process.stdout:
+            log.write(line)
+            log.flush()
+            print(line, end="", flush=True)
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict):
+                records.append(record)
+        code = process.wait()
+        if code:
+            raise subprocess.CalledProcessError(code, command)
+    return records
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--video", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--area", type=int, default=128 * 224)
-    parser.add_argument("--steps", type=int, default=1)
+    parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--frames", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--prompt", default="A person moving")
+    parser.add_argument("--prompt", default="视频中的人在做动作")
     parser.add_argument("--fit", choices=("pad", "crop"), default="crop")
     parser.add_argument("--canvas", choices=("video", "reference"), default="video")
     parser.add_argument("--start", type=float, default=0.0)
@@ -258,6 +292,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.steps < 1 or args.area < 64 * 64 or args.start < 0:
         parser.error("steps must be positive, area at least 4096 pixels, and start nonnegative")
+    if args.frames < 5 or args.frames % 4 != 1:
+        parser.error("frames must be at least five and have the form 4n+1 (5, 9, 17, ...)")
     if args.stage:
         if args.job is None:
             parser.error("--job is required for internal stages")
@@ -271,13 +307,31 @@ def main() -> None:
     jobs = Path("outputs/jobs")
     jobs.mkdir(parents=True, exist_ok=True)
     job = Path(tempfile.mkdtemp(prefix="short-", dir=jobs))
-    for stage in STAGES:
-        command = [sys.executable, "-m", "app.short_render", "--stage", stage, "--job", str(job),
-                   "--reference", str(args.reference.resolve()), "--video", str(args.video.resolve()),
-                   "--output", str(args.output.resolve()), "--area", str(args.area), "--steps", str(args.steps),
-                   "--seed", str(args.seed), "--prompt", args.prompt, "--fit", args.fit,
-                   "--canvas", args.canvas, "--start", str(args.start)]
-        subprocess.run(command, check=True)
+    metadata = {"reference": input_fingerprint(args.reference), "video": input_fingerprint(args.video),
+                "parameters": {key: getattr(args, key) for key in
+                               ("area", "steps", "frames", "seed", "prompt", "fit", "canvas", "start")},
+                "status": "running", "quality_review": "pending", "stages": {}}
+    begin = time.monotonic()
+    manifest = job / "run.json"
+    try:
+        for stage in STAGES:
+            metadata["current_stage"] = stage
+            manifest.write_text(json.dumps(metadata, indent=2) + "\n")
+            command = [sys.executable, "-m", "app.short_render", "--stage", stage, "--job", str(job),
+                       "--reference", str(args.reference.resolve()), "--video", str(args.video.resolve()),
+                       "--output", str(args.output.resolve()), "--area", str(args.area), "--steps", str(args.steps),
+                       "--frames", str(args.frames), "--seed", str(args.seed), "--prompt", args.prompt,
+                       "--fit", args.fit, "--canvas", args.canvas, "--start", str(args.start)]
+            started = time.monotonic()
+            records = run_stage(command, job)
+            metadata["stages"][stage] = {"seconds": round(time.monotonic() - started, 2), "records": records}
+        metadata["status"] = "completed"
+    except BaseException:
+        metadata["status"] = "failed"
+        raise
+    finally:
+        metadata["seconds"] = round(time.monotonic() - begin, 2)
+        manifest.write_text(json.dumps(metadata, indent=2) + "\n")
     print(json.dumps({"output": str(args.output), "job": str(job)}), flush=True)
 
 
