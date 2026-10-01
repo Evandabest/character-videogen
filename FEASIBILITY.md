@@ -80,6 +80,14 @@ The supplied 15.53-second, 960×720, 30 fps H.264 driving clip and 957×2031 ref
 
 The rendered pose occupied only 12.3–18.5% of the frame height across those frames. Face crops had grayscale spatial standard deviation 1.83–2.24 on a 0–255 scale. Preview inspection showed only a partial, small skeleton and nearly featureless face crops, consistent with the hazy/distant performer. Later sampled frames remain hazy or show a profile/occluded face. These are input-conditioning quality warnings; using this clip for a technical smoke test is possible, but it is not a good basis for judging expression transfer or a production-quality baseline.
 
+Raw first-frame pose metadata placed the face crop at approximately 22×28 source pixels before upscaling it to 512×512, explaining why the face PNG looks like a flat brown square. The missing lower limbs in the fifth skeleton are a pose-estimation result, not an image file cropped at the bottom.
+
+## Staged five-frame MP4 smoke test
+
+The project ran preprocessing, umT5, CLIP, VAE encoding, DiT, and VAE decoding in separate processes using the supplied media. At `--area 28672`, the portrait working canvas was 112×240. The one-step run peaked at 12.511 GiB MLX memory in denoising and wrote a valid five-frame, 112×240 H.264 MP4. A four-step run peaked at 12.974 GiB, and the final decode/export filled the driving video's 960×720 frame by cropping the portrait output. `ffprobe` confirmed five frames, 30 fps, and 0.167-second duration.
+
+Both outputs are visibly noisy and not recognizable character animation. They establish stage interoperability and a short memory envelope only. The poor pose/face conditioning, very low working resolution, aggressive portrait-to-landscape crop, and one/four-step sampling all prevent these clips from serving as quality evidence. Do not extrapolate their timing or quality to a 20-step, longer-window render.
+
 ## Remaining feasibility risks
 
 The pinned raw component sizes are: Q4_K_M DiT GGUF 11.50 GB; umT5 checkpoint 11.36 GB; CLIP checkpoint 4.77 GB; VAE 0.51 GB. Converted and temporary copies add substantial disk use. Current free disk is sufficient for these setup experiments. The upstream umT5 loader upcasts the approximately 11 GB BF16 encoder to FP32; this project uses 8-bit shards and a separate loader to avoid that memory expansion. Accuracy relative to the BF16 encoder has not yet been compared.

@@ -92,3 +92,19 @@ Place input media under `app/input/` (ignored by Git), then inspect pose and fac
 ```
 
 The preview and summary go to `outputs/preprocess_preview/` (also ignored by Git). Warnings about small poses or low-contrast face crops are heuristics, not a guarantee of failure, but they should be reviewed before an expensive render.
+
+## Five-frame staged smoke render
+
+After reviewing the preview, run a single short window. Each heavyweight stage uses a separate process so the text, image, VAE, and DiT models do not all remain resident together:
+
+```bash
+.venv/bin/python -m app.short_render \
+  --reference app/input/ref_img.png \
+  --video app/input/ref_vid.mp4 \
+  --output outputs/smoke_5f.mp4 \
+  --area 28672 \
+  --steps 1 \
+  --fit crop
+```
+
+This creates five video frames at the input frame rate, without audio. `--area` is the target working pixel area, not a width or height; the supplied portrait reference yielded 112×240 at the value above. After VAE decode, the MP4 is resized to match the driving video's dimensions (960×720 for the supplied file). `--fit crop` fills that canvas but can remove much of a portrait frame's top and bottom; `--fit pad` keeps the whole frame with side padding. One step is an execution test and can produce mostly noise. The command refuses to overwrite an existing output. It is not the full long-video generation CLI described in the project spec.
