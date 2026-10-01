@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -88,8 +90,8 @@ def status(weight: Weight, *, verify: bool) -> dict:
     return result
 
 
-def download(weight: Weight) -> None:
-    from huggingface_hub import hf_hub_download
+def download(weight: Weight, *, transport: str = "curl") -> None:
+    from huggingface_hub import hf_hub_download, hf_hub_url
 
     if weight.path.is_file() and sha256(weight.path) == weight.sha256:
         print(f"Verified existing {weight.path}")
@@ -102,12 +104,31 @@ def download(weight: Weight) -> None:
             f"have {free / 1024**3:.1f} GiB"
         )
     weight.path.parent.mkdir(parents=True, exist_ok=True)
-    downloaded = Path(
-        hf_hub_download(weight.repo, weight.filename, revision=weight.revision, local_dir=weight.path.parent)
-    )
+    if transport == "curl":
+        if not shutil.which("curl"):
+            raise RuntimeError("curl is required for resumable HTTP downloads")
+        partial = weight.path.with_name(weight.path.name + ".part")
+        url = hf_hub_url(weight.repo, weight.filename, revision=weight.revision)
+        subprocess.run(
+            ["curl", "--fail", "--location", "--continue-at", "-", "--retry", "10",
+             "--retry-all-errors", "--retry-delay", "5", "--speed-limit", "10240",
+             "--speed-time", "60", "--output", str(partial), url],
+            check=True,
+        )
+        downloaded = partial
+    else:
+        downloaded = Path(
+            hf_hub_download(weight.repo, weight.filename, revision=weight.revision, local_dir=weight.path.parent)
+        )
+    actual_size = downloaded.stat().st_size
+    if actual_size != weight.size:
+        raise RuntimeError(f"Size mismatch for {weight.name}: {actual_size} != {weight.size}")
     actual = sha256(downloaded)
     if actual != weight.sha256:
         raise RuntimeError(f"SHA256 mismatch for {weight.name}: {actual}")
+    if downloaded != weight.path:
+        os.replace(downloaded, weight.path)
+        downloaded = weight.path
     print(json.dumps({"name": weight.name, "path": str(downloaded), "bytes": downloaded.stat().st_size, "sha256": actual}))
 
 
@@ -115,10 +136,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("status", "download"))
     parser.add_argument("name", choices=sorted(WEIGHTS))
+    parser.add_argument("--transport", choices=("hub", "curl"), default="curl")
     args = parser.parse_args()
     weight = WEIGHTS[args.name]
     if args.action == "download":
-        download(weight)
+        download(weight, transport=args.transport)
     else:
         print(json.dumps(status(weight, verify=True), indent=2))
 

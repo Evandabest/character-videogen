@@ -1,6 +1,6 @@
 # M3 Pro 18 GB Feasibility Log
 
-Observed October 1, 2026 on the target MacBook Pro. These results establish setup and VAE operation only. They do not establish that the full Wan2.2-Animate DiT fits or that a useful video can be rendered.
+Observed October 1, 2026 on the target MacBook Pro. These results establish checkpoint preparation, VAE operation, and quantized DiT loading. They do not establish that denoising fits or that a useful video can be rendered.
 
 ## Environment
 
@@ -11,7 +11,7 @@ Observed October 1, 2026 on the target MacBook Pro. These results establish setu
 | Python | 3.12.10 through `uv` virtual environment |
 | MLX | 0.32.3; Metal computation succeeds outside the sandbox |
 | Media tools | ffmpeg and ffprobe 8.1.1 |
-| Free disk after VAE setup | Approximately 45 GiB |
+| Free disk after user cleanup | Approximately 115 GiB before the large checkpoint downloads; 88 GiB after DiT source and conversion |
 | Spielberg commit | `f692f93d73af996169244e9d8fa0178d6383f0d6` |
 | mlx-video commit | `87db56a51758fefb748a359b90a5283bb8ba4837` |
 
@@ -30,12 +30,26 @@ The official Wan2.1 VAE was downloaded from revision `cb93a225fbaf1ca100f54e79da
 
 The timing is for a tiny zero-valued synthetic window and cannot be extrapolated to a full-resolution clip. The decoder emitted three extra frames for five input frames. Final output must be trimmed by the timeline/chunk assembler.
 
+## Completed DiT preparation gate
+
+The pinned QuantStack Q4_K_M GGUF downloaded with the expected 11,496,331,072 bytes and SHA256 `43d720f243c3cdf5346ca05b525ec662f89bc5ebeb8e998dc347b840406cdfa6`. The upstream Spielberg converter expands the whole model before quantization, so the project instead converts one tensor group at a time to MLX 4-bit shards.
+
+| Test | Observation |
+| --- | --- |
+| Conversion | All 1,441 GGUF tensors converted into 64 verified MLX shards; 80.56 seconds of per-shard work |
+| Conversion memory | 4.119 GiB peak process RSS; the first shard peaked at 1.517 GiB |
+| Converted size | Approximately 11 GiB on disk |
+| Model load | Complete key and shape coverage; 8.59 seconds in the measured run |
+| Load memory | 10.576 GiB MLX active / 10.577 GiB MLX peak; 3.415 GiB peak process RSS in the measured run |
+
+MLX active memory and process RSS are different counters and should not be added as if they were independent physical allocations. The 78%-of-physical-RAM MLX allocation cap allows approximately 14 GiB, leaving narrow headroom above model weights. Model load success does not prove a denoising step will fit.
+
 ## Remaining feasibility risks
 
-The full original checkpoint path is not ready on this disk. The pinned upstream sources report or expose these raw component sizes: Q4_K_M DiT GGUF 11.50 GB; umT5 checkpoint 11.36 GB; CLIP checkpoint 4.77 GB; VAE 0.51 GB. These already total approximately 28.1 GB before converted copies, temporary files, model caches, pose checkpoints, or output. Spielberg's converted DiT is approximately 11 GB and the converted BF16 T5 approximately 11 GB. Keeping both original and converted sets would exceed current free space. A carefully staged conversion with deletion might lower peak disk use, but the pinned DiT converter first expands GGUF tensors and constructs a full model before quantization; it has not been shown to fit 18 GB unified memory. Do not start that download/conversion path blindly.
+The pinned raw component sizes are: Q4_K_M DiT GGUF 11.50 GB; umT5 checkpoint 11.36 GB; CLIP checkpoint 4.77 GB; VAE 0.51 GB. Converted and temporary copies add substantial disk use. Current free disk is sufficient for these setup experiments, but the umT5 and CLIP conditioning path is not yet qualified on 18 GB unified memory. The upstream umT5 loader upcasts the approximately 11 GB BF16 encoder to FP32, which cannot be assumed to fit beside other components.
 
-No compatible preconverted Spielberg DiT checkpoint has been verified. The remaining gates are text/image encoding, DiT loading, denoising, short baseline quality, multi-chunk continuity, and replacement. A full render remains unavailable until a memory-safe weight preparation path and adequate disk space are established.
+The remaining gates are text/image encoding, denoising, short baseline quality, multi-chunk continuity, and replacement. A full render remains unavailable until a memory-safe conditioning path and real short inference test pass.
 
 ## Next engineering work
 
-Find or produce a verified preconverted MLX DiT with the exact Spielberg key layout, or implement and measure a bounded-memory conversion that never instantiates the full floating-point model. Keep model downloads and conversion artifacts under a dedicated storage budget. After that, qualify text/image conditioning and one short baseline render with real reference/source media. Record load time, peak memory pressure, swap, output quality, and total job time before adding long-video processing.
+Qualify bounded-memory umT5 and CLIP conditioning, then run a short denoising and decode probe with real reference/source media. Record peak memory pressure, swap, output quality, and total job time before adding long-video processing.
