@@ -1,3 +1,6 @@
 [submodule "vendor/spielberg"]
 	path = vendor/spielberg
 	url = https://github.com/dtellz/spielberg.git
+[submodule "vendor/mlx-video"]
+	path = vendor/mlx-video
+	url = https://github.com/Blaizzy/mlx-video.git

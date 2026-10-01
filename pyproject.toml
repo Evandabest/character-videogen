@@ -1,0 +1,17 @@
+[project]
+name = "character-videogen"
+version = "0.1.0"
+description = "Local character animation feasibility harness and pipeline"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "spielberg",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.uv.sources]
+spielberg = { path = "vendor/spielberg", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
