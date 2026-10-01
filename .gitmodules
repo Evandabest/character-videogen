@@ -1,0 +1,3 @@
+[submodule "vendor/spielberg"]
+	path = vendor/spielberg
+	url = https://github.com/dtellz/spielberg.git
