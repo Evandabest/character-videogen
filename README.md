@@ -28,3 +28,16 @@ uv sync --frozen --group convert
 ```
 
 MLX computations may require an unsandboxed local terminal because sandboxed macOS sessions can hide the Metal device. The full model download remains gated by disk and conversion-memory feasibility.
+
+## Pinned Animate weights
+
+The `app.weights` command downloads individual checkpoints from pinned repository revisions and verifies SHA256. It checks free space before each download.
+
+```bash
+.venv/bin/python -m app.weights status dit_q4
+.venv/bin/python -m app.weights download dit_q4
+.venv/bin/python -m app.weights download t5
+.venv/bin/python -m app.weights download clip
+```
+
+These files are the original checkpoints. The current Spielberg converter expands the entire GGUF model in memory before quantizing it, so downloading the weights does not make full Animate inference ready on this 18 GB machine. The bounded conversion path is the next implementation gate.
