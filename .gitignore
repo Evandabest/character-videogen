@@ -6,5 +6,7 @@ __pycache__/
 models/
 cache/
 outputs/
+app/input/
+inputs/
 *.mp4
 *.mov

@@ -79,3 +79,16 @@ With the converted DiT in place, run one synthetic five-frame forward pass under
 ```
 
 This verifies execution at a 64×64 working size only. It does not produce a useful video or establish feasibility at the intended delivery resolution. A meaningful baseline needs a reference character image and a short driving clip.
+
+## Real-media preprocessing preview
+
+Place input media under `app/input/` (ignored by Git), then inspect pose and face conditioning before starting a render:
+
+```bash
+.venv/bin/python -m app.preprocess_probe \
+  --reference app/input/ref_img.png \
+  --video app/input/ref_vid.mp4 \
+  --frames 5
+```
+
+The preview and summary go to `outputs/preprocess_preview/` (also ignored by Git). Warnings about small poses or low-contrast face crops are heuristics, not a guarantee of failure, but they should be reviewed before an expensive render.

@@ -74,6 +74,12 @@ One DiT forward pass used a five-frame synthetic face window, three latent frame
 
 This is an execution smoke test only. It does not predict runtime or memory at 480p-class resolution, longer windows, multiple sampling steps, or real conditioning. A full render has not yet been completed.
 
+## Supplied-media preprocessing preview
+
+The supplied 15.53-second, 960×720, 30 fps H.264 driving clip and 957×2031 reference image were left untouched. A bounded preview of the first five frames at a 480×224 working shape completed in 5.63 seconds after renderer initialization. The first attempt exposed a missing `matplotlib` dependency; it is now in the lockfile.
+
+The rendered pose occupied only 12.3–18.5% of the frame height across those frames. Face crops had grayscale spatial standard deviation 1.83–2.24 on a 0–255 scale. Preview inspection showed only a partial, small skeleton and nearly featureless face crops, consistent with the hazy/distant performer. Later sampled frames remain hazy or show a profile/occluded face. These are input-conditioning quality warnings; using this clip for a technical smoke test is possible, but it is not a good basis for judging expression transfer or a production-quality baseline.
+
 ## Remaining feasibility risks
 
 The pinned raw component sizes are: Q4_K_M DiT GGUF 11.50 GB; umT5 checkpoint 11.36 GB; CLIP checkpoint 4.77 GB; VAE 0.51 GB. Converted and temporary copies add substantial disk use. Current free disk is sufficient for these setup experiments. The upstream umT5 loader upcasts the approximately 11 GB BF16 encoder to FP32; this project uses 8-bit shards and a separate loader to avoid that memory expansion. Accuracy relative to the BF16 encoder has not yet been compared.
