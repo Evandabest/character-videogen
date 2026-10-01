@@ -212,10 +212,11 @@ def _decode(args) -> None:
     prepare_backend()
     from engine.animate.config import AnimateConfig
     from mlx_video.models.wan_2.utils import load_vae_decoder
+    from app.vae_decode import decode_streaming
 
     latents = mx.load(str(args.job / "latents.safetensors"))["latents"]
     decoder = load_vae_decoder(CONVERTED, AnimateConfig.animate_14b())
-    decoded = decoder.decode(latents[None][:, :, 1:])[0]
+    decoded = decode_streaming(decoder, latents[None][:, :, 1:])[0]
     mx.eval(decoded)
     frames = np.transpose(np.asarray(decoded[:, :args.frames]), (1, 2, 3, 0))
     frames = ((np.clip(frames, -1, 1) + 1) * 127.5).astype(np.uint8)
@@ -307,6 +308,7 @@ def main() -> None:
     jobs = Path("outputs/jobs")
     jobs.mkdir(parents=True, exist_ok=True)
     job = Path(tempfile.mkdtemp(prefix="short-", dir=jobs))
+    code_root = Path(__file__).resolve().parent
     metadata = {"reference": input_fingerprint(args.reference), "video": input_fingerprint(args.video),
                 "parameters": {key: getattr(args, key) for key in
                                ("area", "steps", "frames", "seed", "prompt", "fit", "canvas", "start")},
@@ -316,6 +318,9 @@ def main() -> None:
     try:
         for stage in STAGES:
             metadata["current_stage"] = stage
+            code_hashes = {path.name: input_fingerprint(path)["sha256"]
+                           for path in sorted(code_root.glob("*.py"))}
+            metadata["current_code_sha256"] = code_hashes
             manifest.write_text(json.dumps(metadata, indent=2) + "\n")
             command = [sys.executable, "-m", "app.short_render", "--stage", stage, "--job", str(job),
                        "--reference", str(args.reference.resolve()), "--video", str(args.video.resolve()),
@@ -324,7 +329,8 @@ def main() -> None:
                        "--fit", args.fit, "--canvas", args.canvas, "--start", str(args.start)]
             started = time.monotonic()
             records = run_stage(command, job)
-            metadata["stages"][stage] = {"seconds": round(time.monotonic() - started, 2), "records": records}
+            metadata["stages"][stage] = {"seconds": round(time.monotonic() - started, 2),
+                                         "records": records, "code_sha256": code_hashes}
         metadata["status"] = "completed"
     except BaseException:
         metadata["status"] = "failed"

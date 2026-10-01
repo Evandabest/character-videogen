@@ -98,3 +98,17 @@ def test_cached_conditioning_matches_original_projection():
     np.testing.assert_array_equal(np.asarray(model.img_emb(clip)), np.asarray(image))
     np.testing.assert_array_equal(np.asarray(model.face_encoder(motion[None])), np.asarray(tokens))
     assert model.text_embedding == []
+
+
+def test_patch_embedding_matches_official_conv3d_layout():
+    model = TinyText()
+    model.dim = 8
+    model.patch_size = (1, 2, 2)
+    projection = nn.Linear(36 * 4, 8)
+    pixels = mx.array(np.random.default_rng(19).normal(size=(36, 3, 18, 24)).astype(np.float32))
+    actual, grid = model._patch_grid(pixels, projection)
+    weights = torch.from_numpy(np.asarray(projection.weight).copy()).reshape(8, 36, 1, 2, 2)
+    bias = torch.from_numpy(np.asarray(projection.bias).copy())
+    expected = F.conv3d(torch.from_numpy(np.asarray(pixels).copy())[None], weights, bias, stride=(1, 2, 2))
+    assert grid == (3, 9, 12)
+    np.testing.assert_allclose(np.asarray(actual), expected[0].permute(1, 2, 3, 0).numpy(), atol=2e-6)

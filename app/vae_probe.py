@@ -87,9 +87,11 @@ def probe() -> None:
     rgb = mx.zeros((1, 3, 5, 64, 64), dtype=mx.float32)
     latent = encoder.encode(rgb)
     mx.eval(latent)
-    output = decoder.decode(latent)
+    from app.vae_decode import decode_streaming
+
+    output = decode_streaming(decoder, latent)
     mx.eval(output)
-    if output.shape[2] < rgb.shape[2] or output.shape[-2:] != rgb.shape[-2:]:
+    if output.shape != rgb.shape:
         raise RuntimeError(f"Unexpected decoded shape {output.shape}")
     print(json.dumps({"input_shape": list(rgb.shape), "latent_shape": list(latent.shape),
                       "decoded_shape": list(output.shape),
