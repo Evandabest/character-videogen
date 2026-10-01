@@ -31,6 +31,21 @@ def _git_revision(path: Path) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def _shard_check(name: str, path: Path) -> Check:
+    manifest_path = path / "manifest.json"
+    if not manifest_path.is_file():
+        return Check(name, "pending", "manifest missing")
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        shards = manifest["shards"]
+        total = manifest["groups_total"]
+        present = sum((path / info["file"]).is_file() for info in shards.values())
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        return Check(name, "blocked", f"invalid manifest: {exc}")
+    state = "ok" if present == total == len(shards) else "pending"
+    return Check(name, state, f"{present}/{total} shards present; load validates SHA256")
+
+
 def checks() -> list[Check]:
     results: list[Check] = []
     arch = platform.machine()
@@ -57,10 +72,31 @@ def checks() -> list[Check]:
     except Exception as exc:
         results.append(Check("mlx_backend_import", "blocked", f"{type(exc).__name__}: {exc}"))
     model_root = ROOT / "vendor" / "spielberg" / "models" / "mlx"
-    for filename in ("config.json", "animate_dit.safetensors", "t5_encoder.safetensors", "vae.safetensors", "clip_visual.safetensors"):
+    for filename in ("config.json", "vae.safetensors", "clip_visual.safetensors"):
         path = model_root / filename
         detail = f"{path.stat().st_size / 1024**3:.2f} GiB" if path.is_file() else "missing"
         results.append(Check(filename, "ok" if path.is_file() else "pending", detail))
+    results.append(_shard_check("animate_dit_shards", model_root / "animate_dit_shards"))
+    results.append(_shard_check("t5_shards", model_root / "t5_shards"))
+    from app.tokenizer import DIRECTORY as TOKENIZER, FILES as TOKENIZER_FILES
+
+    missing_tokenizer = [name for name in TOKENIZER_FILES if not (TOKENIZER / name).is_file()]
+    results.append(Check("umt5_tokenizer", "pending" if missing_tokenizer else "ok",
+                         ", ".join(missing_tokenizer) if missing_tokenizer else "local files present"))
+    from app.pose_weights import MARKER as POSE_MARKER, REVISION as POSE_REVISION
+
+    pose_root = ROOT / "vendor" / "spielberg" / "models" / "original" / "process_checkpoint"
+    pose_files = (pose_root / "det" / "yolov10m.onnx",
+                  pose_root / "pose2d" / "vitpose_h_wholebody.onnx" / "end2end.onnx")
+    missing_pose = [str(path.relative_to(pose_root)) for path in pose_files if not path.is_file()]
+    try:
+        pose_verified = json.loads(POSE_MARKER.read_text()) if POSE_MARKER.is_file() else {}
+    except (OSError, ValueError):
+        pose_verified = {}
+    ready = not missing_pose and pose_verified.get("revision") == POSE_REVISION and pose_verified.get("files", 0) >= 390
+    results.append(Check("pose_checkpoints", "ok" if ready else "pending",
+                         ", ".join(missing_pose) if missing_pose else
+                         (f"{pose_verified['files']} files SHA256-verified" if ready else "external data not yet verified")))
     return results
 
 

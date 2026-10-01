@@ -61,6 +61,15 @@ The full DiT conversion and load have now passed on the target Mac; denoising re
 
 The tokenizer download fetches only five small files from a pinned `google/umt5-xxl` revision. Subsequent tokenizer loading is offline. The converted model checkpoints remain ignored by Git, while conversion code and checksum pins are committed.
 
+For driving-video preprocessing, download and SHA-verify the official YOLOv10/ViTPose ONNX package (395 files, about 2.43 GiB):
+
+```bash
+.venv/bin/python -m app.pose_weights download
+.venv/bin/python -m app doctor
+```
+
+The doctor checks that a complete pose package was verified and that all converted shard groups are present. Loading the shards performs full checksum and tensor-shape validation. The pose ONNX sessions have been initialized successfully on this Mac, but real human footage is still needed to assess extraction quality.
+
 ## Tiny denoising probe
 
 With the converted DiT in place, run one synthetic five-frame forward pass under a 78%-of-RAM MLX allocation cap:

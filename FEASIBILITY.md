@@ -11,7 +11,7 @@ Observed October 1, 2026 on the target MacBook Pro. These results establish chec
 | Python | 3.12.10 through `uv` virtual environment |
 | MLX | 0.32.3; Metal computation succeeds outside the sandbox |
 | Media tools | ffmpeg and ffprobe 8.1.1 |
-| Free disk after user cleanup | Approximately 115 GiB before the large checkpoint downloads; 88 GiB after DiT source and conversion |
+| Free disk after user cleanup | Approximately 115 GiB before the large checkpoint downloads; 63 GiB after current model setup |
 | Spielberg commit | `f692f93d73af996169244e9d8fa0178d6383f0d6` |
 | mlx-video commit | `87db56a51758fefb748a359b90a5283bb8ba4837` |
 
@@ -57,6 +57,8 @@ The official umT5 and CLIP checkpoints downloaded from the pinned Wan revision a
 | CLIP forward | A synthetic gray image returned finite `[257, 1280]` features in 15.0 seconds including load; 2.899 GiB peak MLX memory |
 
 The encoders were run in separate processes. These probes establish execution and memory only, not conditioning quality. Real reference and driving media have not yet been tested.
+
+The official pose-only package was downloaded from the pinned Wan revision: 395 files totaling 2,611,022,238 bytes, each checked against its LFS SHA256. YOLOv10 and ViTPose ONNX sessions initialized on CPU in 2.13 seconds, with 2.699 GiB peak process RSS. Pose extraction and face-crop quality still require real driving footage.
 
 ## Completed tiny denoising probe
 
