@@ -12,7 +12,8 @@ import mlx.nn as nn
 import torch
 import torch.nn.functional as F
 
-from app.animate_model import AnimateClipVisual, WanAnimateModel
+from app.animate_model import AnimateClipVisual, WanAnimateModel, preprocess_clip
+from engine.animate.model import WanAnimateModel as UpstreamAnimateModel
 
 
 class TinyText(WanAnimateModel):
@@ -52,3 +53,48 @@ def test_clip_uses_exact_gelu_against_torch():
     expected_activation = F.gelu(torch.from_numpy(np.asarray(hidden).copy())).numpy()
     expected = x + block.mlp[2](mx.array(expected_activation))
     np.testing.assert_allclose(np.asarray(model(pixels)), np.asarray(expected), atol=2e-6)
+
+
+def test_single_device_tokens_keep_face_frames_aligned(monkeypatch):
+    model = TinyText()
+    model.patch_size = (1, 2, 2)
+    observed = []
+    monkeypatch.setattr(UpstreamAnimateModel, "__call__",
+                        lambda self, x, t, clip, context, length, *args: observed.append(length))
+    # Three latent frames, each containing 9*12 spatial tokens: 324 total.
+    x = mx.zeros((16, 3, 18, 24))
+    model(x, None, None, None, 1296, None, None, None)
+    assert observed == [324]
+    with pytest.raises(ValueError):
+        model(mx.zeros((16, 3, 17, 24)), None, None, None, 0, None, None, None)
+
+
+def test_clip_resize_matches_official_bicubic_interpolation():
+    image = np.random.default_rng(17).uniform(-1, 1, (3, 144, 192)).astype(np.float32)
+    resized = F.interpolate(torch.from_numpy(image)[None], size=(224, 224),
+                            mode="bicubic", align_corners=False)
+    mean = torch.tensor([0.48145466, 0.4578275, 0.40821073])[None, :, None, None]
+    std = torch.tensor([0.26862954, 0.26130258, 0.27577711])[None, :, None, None]
+    expected = ((resized * 0.5 + 0.5 - mean) / std).permute(0, 2, 3, 1).numpy()
+    # CPU/GPU coordinate rounding differs by <1e-4 after normalization.
+    np.testing.assert_allclose(np.asarray(preprocess_clip(mx.array(image))), expected, atol=1e-4)
+
+
+def test_cached_conditioning_matches_original_projection():
+    model = TinyText()
+    model.img_emb = nn.Linear(4, 8)
+    model.motion_encoder = nn.Linear(4, 8)
+    # Tiny deterministic stand-ins for the two face encoders.
+    model.motion_encoder.get_motion = model.motion_encoder.__call__
+    model.face_encoder = nn.Linear(8, 8)
+    clip, context, faces = mx.ones((2, 4)), mx.ones((3, 4)), mx.ones((5, 4))
+    text = model._text(context)
+    image = model.img_emb(clip)
+    motion = model.motion_encoder.get_motion(faces)
+    tokens = model.face_encoder(motion[None])
+    mx.eval(text, image, motion, tokens)
+    model.prepare_conditioning(clip, context, faces)
+    np.testing.assert_array_equal(np.asarray(model._text(context)), np.asarray(text))
+    np.testing.assert_array_equal(np.asarray(model.img_emb(clip)), np.asarray(image))
+    np.testing.assert_array_equal(np.asarray(model.face_encoder(motion[None])), np.asarray(tokens))
+    assert model.text_embedding == []

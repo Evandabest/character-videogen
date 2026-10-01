@@ -176,9 +176,14 @@ def _denoise(args) -> None:
     y, pose = y_and_pose["y"], y_and_pose["pose"]
     face_pixels = mx.array(face.astype(np.float32) / 127.5 - 1.0)
     model = load_sharded_model(memory_fraction=0.78)
+    model.prepare_conditioning(features, context, face_pixels)
+    mx.set_cache_limit(128 * 1024**2)
+    print(json.dumps({"stage": "denoise_prepare", "conditioning_cached": True,
+                      "mlx_active_gib": round(mx.get_active_memory() / 1024**3, 3),
+                      "mlx_peak_gib": round(mx.get_peak_memory() / 1024**3, 3)}), flush=True)
     mx.random.seed(args.seed)
     latents = mx.random.normal((16, *y.shape[1:]))
-    seq_len = math.ceil((y.shape[1] * y.shape[2] * y.shape[3]) / 4) * 4
+    seq_len = math.prod(size // patch for size, patch in zip(y.shape[1:], model.patch_size))
     scheduler = FlowUniPCScheduler()
     scheduler.set_timesteps(args.steps, shift=5.0)
     for step, timestep in enumerate(scheduler.timesteps, 1):
