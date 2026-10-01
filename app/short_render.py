@@ -12,6 +12,34 @@ import time
 from pathlib import Path
 
 
+def video_dimensions(video: Path) -> tuple[int, int]:
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+         "-of", "json", str(video)], capture_output=True, text=True, check=True,
+    )
+    stream = json.loads(probe.stdout)["streams"][0]
+    return int(stream["width"]), int(stream["height"])
+
+
+def make_video_canvas(reference: Path, video: Path, output: Path) -> tuple[int, int]:
+    """Keep the full reference person inside a canvas matching video aspect ratio."""
+    from PIL import Image, ImageFilter, ImageOps
+
+    video_width, video_height = video_dimensions(video)
+    limit = min(1.0, 1024 / max(video_width, video_height))
+    width = max(1, round(video_width * limit))
+    height = max(1, round(video_height * limit))
+    with Image.open(reference) as original:
+        rgb = original.convert("RGB")
+        background = ImageOps.fit(rgb, (width, height)).filter(
+            ImageFilter.GaussianBlur(radius=max(1, round(min(width, height) * 0.04)))
+        )
+        foreground = ImageOps.contain(rgb, (width, height))
+        background.paste(foreground, ((width - foreground.width) // 2, (height - foreground.height) // 2))
+        background.save(output)
+    return width, height
+
+
 def fit_frame(frame, width: int, height: int, mode: str):
     """Resize an RGB frame to the delivery canvas with an explicit fit policy."""
     import cv2
@@ -47,12 +75,25 @@ def _prepare(args) -> None:
     prepare_backend()
     from engine.preprocess.extract import preprocess
 
-    data = preprocess(str(args.video), str(args.reference), resolution_area=args.area, max_frames=5)
+    reference = args.reference
+    if args.canvas == "video":
+        reference = args.job / "reference_video_canvas.png"
+        make_video_canvas(args.reference, args.video, reference)
+    source = args.video
+    if args.start > 0:
+        source = args.job / "source_segment.mp4"
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(args.start),
+             "-i", str(args.video), "-frames:v", "5", "-an", "-c:v", "libx264", "-crf", "18",
+             "-pix_fmt", "yuv420p", str(source)], check=True,
+        )
+    data = preprocess(str(source), str(reference), resolution_area=args.area, max_frames=5)
     if len(data["pose_frames"]) != 5:
         raise RuntimeError("The smoke render needs at least five driving frames")
     np.savez_compressed(args.job / "prepared.npz", pose=data["pose_frames"], face=data["face_frames"],
                         reference=data["ref_image"], fps=np.array(data["fps"]))
-    print(json.dumps({"stage": "prepare", "shape": list(data["ref_image"].shape), "fps": data["fps"]}), flush=True)
+    print(json.dumps({"stage": "prepare", "shape": list(data["ref_image"].shape), "fps": data["fps"],
+                      "start": args.start, "canvas": args.canvas}), flush=True)
 
 
 def _text(args) -> None:
@@ -170,12 +211,7 @@ def _decode(args) -> None:
     frames = ((np.clip(frames, -1, 1) + 1) * 127.5).astype(np.uint8)
     with np.load(args.job / "prepared.npz") as data:
         fps = float(data["fps"])
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
-         "-of", "json", str(args.video)], capture_output=True, text=True, check=True,
-    )
-    stream = json.loads(probe.stdout)["streams"][0]
-    width, height = int(stream["width"]), int(stream["height"])
+    width, height = video_dimensions(args.video)
     if width % 2 or height % 2:
         raise RuntimeError("The current H.264 smoke encoder requires even source-video dimensions")
     fitted = [fit_frame(frame, width, height, args.fit) for frame in frames]
@@ -208,11 +244,13 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--prompt", default="A person moving")
     parser.add_argument("--fit", choices=("pad", "crop"), default="crop")
+    parser.add_argument("--canvas", choices=("video", "reference"), default="video")
+    parser.add_argument("--start", type=float, default=0.0)
     parser.add_argument("--stage", choices=STAGES)
     parser.add_argument("--job", type=Path)
     args = parser.parse_args()
-    if args.steps < 1 or args.area < 64 * 64:
-        parser.error("steps must be positive and area at least 4096 pixels")
+    if args.steps < 1 or args.area < 64 * 64 or args.start < 0:
+        parser.error("steps must be positive, area at least 4096 pixels, and start nonnegative")
     if args.stage:
         if args.job is None:
             parser.error("--job is required for internal stages")
@@ -230,7 +268,8 @@ def main() -> None:
         command = [sys.executable, "-m", "app.short_render", "--stage", stage, "--job", str(job),
                    "--reference", str(args.reference.resolve()), "--video", str(args.video.resolve()),
                    "--output", str(args.output.resolve()), "--area", str(args.area), "--steps", str(args.steps),
-                   "--seed", str(args.seed), "--prompt", args.prompt, "--fit", args.fit]
+                   "--seed", str(args.seed), "--prompt", args.prompt, "--fit", args.fit,
+                   "--canvas", args.canvas, "--start", str(args.start)]
         subprocess.run(command, check=True)
     print(json.dumps({"output": str(args.output), "job": str(job)}), flush=True)
 

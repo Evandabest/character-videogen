@@ -104,7 +104,9 @@ After reviewing the preview, run a single short window. Each heavyweight stage u
   --output outputs/smoke_5f.mp4 \
   --area 28672 \
   --steps 1 \
+  --start 3 \
+  --canvas video \
   --fit crop
 ```
 
-This creates five video frames at the input frame rate, without audio. `--area` is the target working pixel area, not a width or height; the supplied portrait reference yielded 112×240 at the value above. After VAE decode, the MP4 is resized to match the driving video's dimensions (960×720 for the supplied file). `--fit crop` fills that canvas but can remove much of a portrait frame's top and bottom; `--fit pad` keeps the whole frame with side padding. One step is an execution test and can produce mostly noise. The command refuses to overwrite an existing output. It is not the full long-video generation CLI described in the project spec.
+This creates five video frames at the input frame rate, without audio. `--start` selects the source-video time in seconds. `--area` is the target working pixel area, not a width or height. `--canvas video` fits the full reference person into a blurred-edge canvas with the driving video's aspect ratio; on the supplied 4:3 video this yields a 192×144 working frame at the value above. After VAE decode, the MP4 is resized to match the driving video's dimensions (960×720 for the supplied file). `--fit crop` fills that canvas; `--fit pad` preserves the whole generated frame with padding when aspect ratios differ. One step is an execution test and can produce mostly noise. The command refuses to overwrite an existing output. It is not the full long-video generation CLI described in the project spec.
