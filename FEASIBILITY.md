@@ -1,6 +1,6 @@
 # M3 Pro 18 GB Feasibility Log
 
-Observed October 1, 2026 on the target MacBook Pro. These results establish checkpoint preparation, VAE operation, and quantized DiT loading. They do not establish that denoising fits or that a useful video can be rendered.
+Observed October 1, 2026 on the target MacBook Pro. These results establish checkpoint preparation, conditioning-encoder operation, VAE operation, and one tiny synthetic DiT forward pass. They do not establish that a useful video can be rendered.
 
 ## Environment
 
@@ -58,12 +58,26 @@ The official umT5 and CLIP checkpoints downloaded from the pinned Wan revision a
 
 The encoders were run in separate processes. These probes establish execution and memory only, not conditioning quality. Real reference and driving media have not yet been tested.
 
+## Completed tiny denoising probe
+
+One DiT forward pass used a five-frame synthetic face window, three latent frames, and an 8×8 latent grid (equivalent to a 64×64 working image). Text, image, pose, and temporal-conditioning tensors were zeros. The result was finite `[16, 3, 8, 8]` latents.
+
+| Measurement | Observation |
+| --- | --- |
+| Model load | 11.23 seconds |
+| One forward pass | 43.79 seconds |
+| MLX active after load | 10.576 GiB |
+| MLX peak through forward | 12.080 GiB |
+| Memory cap | 78% of physical memory, approximately 14 GiB |
+
+This is an execution smoke test only. It does not predict runtime or memory at 480p-class resolution, longer windows, multiple sampling steps, or real conditioning. A full render has not yet been completed.
+
 ## Remaining feasibility risks
 
 The pinned raw component sizes are: Q4_K_M DiT GGUF 11.50 GB; umT5 checkpoint 11.36 GB; CLIP checkpoint 4.77 GB; VAE 0.51 GB. Converted and temporary copies add substantial disk use. Current free disk is sufficient for these setup experiments. The upstream umT5 loader upcasts the approximately 11 GB BF16 encoder to FP32; this project uses 8-bit shards and a separate loader to avoid that memory expansion. Accuracy relative to the BF16 encoder has not yet been compared.
 
-The remaining gates are a DiT denoising step, end-to-end short baseline quality, multi-chunk continuity, and replacement. A full render remains unavailable until a real short inference test passes.
+The remaining gates are end-to-end short baseline quality, multi-chunk continuity, and replacement. A full render remains unavailable until a real short inference test passes.
 
 ## Next engineering work
 
-Run a short denoising and decode probe, then test with real reference/source media. Record peak memory pressure, swap, output quality, and total job time before adding long-video processing.
+Complete a staged end-to-end render with real reference/source media, including preprocessing, multiple sampling steps, and VAE decode. Record peak memory pressure, swap, output quality, and total job time before adding long-video processing.

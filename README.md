@@ -60,3 +60,13 @@ The full DiT conversion and load have now passed on the target Mac; denoising re
 ```
 
 The tokenizer download fetches only five small files from a pinned `google/umt5-xxl` revision. Subsequent tokenizer loading is offline. The converted model checkpoints remain ignored by Git, while conversion code and checksum pins are committed.
+
+## Tiny denoising probe
+
+With the converted DiT in place, run one synthetic five-frame forward pass under a 78%-of-RAM MLX allocation cap:
+
+```bash
+.venv/bin/python -m app.dit_probe
+```
+
+This verifies execution at a 64×64 working size only. It does not produce a useful video or establish feasibility at the intended delivery resolution. A meaningful baseline needs a reference character image and a short driving clip.
