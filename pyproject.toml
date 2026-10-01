@@ -9,6 +9,7 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest>=8,<10"]
+convert = ["torch>=2.4,<3"]
 
 [tool.uv.sources]
 spielberg = { path = "vendor/spielberg", editable = true }
