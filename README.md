@@ -42,9 +42,21 @@ The `app.weights` command downloads individual checkpoints from pinned repositor
 
 These files are the original checkpoints. The current Spielberg converter expands the entire GGUF model in memory before quantizing it, so downloading the weights does not make full Animate inference ready on this 18 GB machine. The bounded conversion path is the next implementation gate.
 
-The project converter writes resumable MLX shards, one model group at a time. Start with a single group, inspect its memory and tensor results, then resume the remainder. The one-group converter is covered by a small quantized-layer compatibility test; a full checkpoint conversion remains to be measured.
+The project converter writes resumable MLX shards, one model group at a time. Start with a single group, inspect its memory and tensor results, then resume the remainder. A small quantized-layer compatibility test covers the layout, and the full checkpoint conversion was measured on the target Mac.
 
 ```bash
 .venv/bin/python -m app.dit_convert --max-shards 1
 .venv/bin/python -m app.dit_convert
 ```
+
+The full DiT conversion and load have now passed on the target Mac; denoising remains unverified. The official umT5 checkpoint is converted to 8-bit shards and loaded through `app.t5_loader`, avoiding the upstream FP32 upcast. CLIP conversion extracts only the visual tower. Use these commands after downloading their pinned source checkpoints:
+
+```bash
+.venv/bin/python -m app.t5_convert --max-shards 1
+.venv/bin/python -m app.t5_convert
+.venv/bin/python -m app.clip_convert
+.venv/bin/python -m app.tokenizer download
+.venv/bin/python -m app.tokenizer probe
+```
+
+The tokenizer download fetches only five small files from a pinned `google/umt5-xxl` revision. Subsequent tokenizer loading is offline. The converted model checkpoints remain ignored by Git, while conversion code and checksum pins are committed.

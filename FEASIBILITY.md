@@ -44,12 +44,26 @@ The pinned QuantStack Q4_K_M GGUF downloaded with the expected 11,496,331,072 by
 
 MLX active memory and process RSS are different counters and should not be added as if they were independent physical allocations. The 78%-of-physical-RAM MLX allocation cap allows approximately 14 GiB, leaving narrow headroom above model weights. Model load success does not prove a denoising step will fit.
 
+## Completed conditioning-encoder probes
+
+The official umT5 and CLIP checkpoints downloaded from the pinned Wan revision and passed their recorded SHA256 checks. The local tokenizer was pinned to `google/umt5-xxl@66cb9e7e85526fe440a945569e42c72fb6cbc0ad`.
+
+| Test | Observation |
+| --- | --- |
+| umT5 conversion | 242 BF16 tensors became 26 resumable 8-bit MLX shards; 6.064 GiB peak process RSS and 2.995 GiB peak MLX allocation |
+| umT5 load | Complete key and shape coverage; 5.622 GiB MLX active memory |
+| Text forward | The backend's 512-token padded encoding of “A person waves hello” returned finite `[6, 4096]` embeddings in 9.96 seconds including load; 6.444 GiB peak MLX memory |
+| CLIP visual extraction | 389 visual-only tensors saved; 4.571 GiB peak process RSS and 2.353 GiB peak MLX memory |
+| CLIP forward | A synthetic gray image returned finite `[257, 1280]` features in 15.0 seconds including load; 2.899 GiB peak MLX memory |
+
+The encoders were run in separate processes. These probes establish execution and memory only, not conditioning quality. Real reference and driving media have not yet been tested.
+
 ## Remaining feasibility risks
 
-The pinned raw component sizes are: Q4_K_M DiT GGUF 11.50 GB; umT5 checkpoint 11.36 GB; CLIP checkpoint 4.77 GB; VAE 0.51 GB. Converted and temporary copies add substantial disk use. Current free disk is sufficient for these setup experiments, but the umT5 and CLIP conditioning path is not yet qualified on 18 GB unified memory. The upstream umT5 loader upcasts the approximately 11 GB BF16 encoder to FP32, which cannot be assumed to fit beside other components.
+The pinned raw component sizes are: Q4_K_M DiT GGUF 11.50 GB; umT5 checkpoint 11.36 GB; CLIP checkpoint 4.77 GB; VAE 0.51 GB. Converted and temporary copies add substantial disk use. Current free disk is sufficient for these setup experiments. The upstream umT5 loader upcasts the approximately 11 GB BF16 encoder to FP32; this project uses 8-bit shards and a separate loader to avoid that memory expansion. Accuracy relative to the BF16 encoder has not yet been compared.
 
-The remaining gates are text/image encoding, denoising, short baseline quality, multi-chunk continuity, and replacement. A full render remains unavailable until a memory-safe conditioning path and real short inference test pass.
+The remaining gates are a DiT denoising step, end-to-end short baseline quality, multi-chunk continuity, and replacement. A full render remains unavailable until a real short inference test passes.
 
 ## Next engineering work
 
-Qualify bounded-memory umT5 and CLIP conditioning, then run a short denoising and decode probe with real reference/source media. Record peak memory pressure, swap, output quality, and total job time before adding long-video processing.
+Run a short denoising and decode probe, then test with real reference/source media. Record peak memory pressure, swap, output quality, and total job time before adding long-video processing.
