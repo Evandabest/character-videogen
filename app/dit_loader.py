@@ -33,7 +33,7 @@ def load_sharded_model(*, memory_fraction: float = 0.78):
     import mlx.core as mx
     import mlx.nn as nn
     import mlx.utils
-    from engine.animate.model import WanAnimateModel
+    from app.animate_model import WanAnimateModel
     from engine.weights.convert import _quantize_predicate
     from engine.weights.loader import load_config, set_memory_limit
 

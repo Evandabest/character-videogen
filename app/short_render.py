@@ -119,7 +119,7 @@ def _image(args) -> None:
     from app.clip_convert import OUTPUT
 
     prepare_backend()
-    from engine.animate.clip_image import ClipEncoder
+    from app.animate_model import ClipEncoder
 
     with np.load(args.job / "prepared.npz") as data:
         reference = data["reference"]
@@ -189,6 +189,8 @@ def _denoise(args) -> None:
         if not bool(mx.all(mx.isfinite(latents)).item()):
             raise RuntimeError(f"Non-finite latents at denoising step {step}")
         print(json.dumps({"stage": "denoise", "step": step, "seconds": round(time.monotonic() - start, 2),
+                          "latent_std": round(float(mx.std(latents).item()), 4),
+                          "prediction_std": round(float(mx.std(prediction).item()), 4),
                           "mlx_peak_gib": round(mx.get_peak_memory() / 1024**3, 3)}), flush=True)
     _save(args.job, "latents", {"latents": latents})
 
