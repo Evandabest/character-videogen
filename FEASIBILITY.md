@@ -76,7 +76,7 @@ This is an execution smoke test only. It does not predict runtime or memory at 4
 
 ## Supplied-media preprocessing preview
 
-The supplied 15.53-second, 960×720, 30 fps H.264 driving clip and 957×2031 reference image were left untouched. A bounded preview of the first five frames at a 480×224 working shape completed in 5.63 seconds after renderer initialization. The first attempt exposed a missing `matplotlib` dependency; it is now in the lockfile.
+The supplied 15.53-second, 960×720, 30 fps H.264 driving clip and initial 957×2031 reference image were left untouched. A bounded preview of the first five frames at a 480×224 working shape completed in 5.63 seconds after renderer initialization. The first attempt exposed a missing `matplotlib` dependency; it is now in the lockfile.
 
 The rendered pose occupied only 12.3–18.5% of the frame height across those frames. Face crops had grayscale spatial standard deviation 1.83–2.24 on a 0–255 scale. Preview inspection showed only a partial, small skeleton and nearly featureless face crops, consistent with the hazy/distant performer. Later sampled frames remain hazy or show a profile/occluded face. These are input-conditioning quality warnings; using this clip for a technical smoke test is possible, but it is not a good basis for judging expression transfer or a production-quality baseline.
 
@@ -88,12 +88,18 @@ The project ran preprocessing, umT5, CLIP, VAE encoding, DiT, and VAE decoding i
 
 Both outputs are visibly noisy and not recognizable character animation. They establish stage interoperability and a short memory envelope only. The poor pose/face conditioning, very low working resolution, aggressive portrait-to-landscape crop, and one/four-step sampling all prevent these clips from serving as quality evidence. Do not extrapolate their timing or quality to a 20-step, longer-window render.
 
+## Updated-reference 20-step test
+
+The reference was replaced with a 348×574 full-body cutout. The project made a video-aspect canvas containing the complete figure, selected five driving frames beginning at 3 seconds, and preprocessed a 192×144 working frame. All conditioning stages, 20 DiT steps, VAE decode, and H.264 export completed. The final MP4 is five frames at 30 fps and 960×720, matching the driving video's size. Peak reported MLX memory during denoising was 12.975 GiB.
+
+The decoded frames remain abstract color noise rather than recognizable animation. This test removes one/four-step sampling and extreme portrait-to-landscape cropping as sufficient explanations for the earlier failure. It does not isolate the root cause: the very small 192×144, five-frame working window may itself be outside the model's useful regime, while checkpoint conversion/load mapping, scheduler behavior, latent scaling, and conditioning alignment still need verification against the upstream pipeline. Do not scale to the full clip until a short segment produces coherent frames. The updated reference and source media remain ignored local inputs, not committed assets.
+
 ## Remaining feasibility risks
 
 The pinned raw component sizes are: Q4_K_M DiT GGUF 11.50 GB; umT5 checkpoint 11.36 GB; CLIP checkpoint 4.77 GB; VAE 0.51 GB. Converted and temporary copies add substantial disk use. Current free disk is sufficient for these setup experiments. The upstream umT5 loader upcasts the approximately 11 GB BF16 encoder to FP32; this project uses 8-bit shards and a separate loader to avoid that memory expansion. Accuracy relative to the BF16 encoder has not yet been compared.
 
-The remaining gates are end-to-end short baseline quality, multi-chunk continuity, and replacement. A full render remains unavailable until a real short inference test passes.
+The remaining gates are end-to-end short baseline quality, multi-chunk continuity, and replacement. A full render remains unavailable until the short inference quality gate passes.
 
 ## Next engineering work
 
-Complete a staged end-to-end render with real reference/source media, including preprocessing, multiple sampling steps, and VAE decode. Record peak memory pressure, swap, output quality, and total job time before adding long-video processing.
+Diagnose the incoherent 20-step result by comparing one denoising step and VAE reconstruction against the upstream pipeline, including model tensor mapping, scheduler inputs/outputs, latent scale, and conditioning arrays. Record system swap and total job time in the next instrumented run. Do not add long-video processing before a coherent short-window result.
